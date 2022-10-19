@@ -40,9 +40,9 @@ var mfds = {
   active:0
 };
 
-mfds.list.push({path:"public/scenes/models/glb/displays/", fileName:"RDU-3068.glb", meshes:[]});
-mfds.list.push({path:"public/scenes/models/glb/displays/", fileName:"RDU-3138.glb", meshes:[]});
-mfds.list.push({path:"public/scenes/models/glb/displays/", fileName:"RDU-4047.glb", meshes:[]});
+mfds.list.push({path:"scenes/models/glb/displays/", fileName:"RDU-3068.glb", meshes:[]});
+mfds.list.push({path:"scenes/models/glb/displays/", fileName:"RDU-3138.glb", meshes:[]});
+mfds.list.push({path:"scenes/models/glb/displays/", fileName:"RDU-4047.glb", meshes:[]});
 for(var i = 0; i < mfds.list.length; i++) {
   var newMFD = await spawn_gltf(mfds.list[i].path,mfds.list[i].fileName,scene,{pos:new Vector3(0,-1,0)});
   mfds.list[i].meshes = newMFD.meshes;
