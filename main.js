@@ -31,9 +31,9 @@ var vrControllerInfo = {
 
 var state = "holdingMFD"; // possibleValues: holdingMFD, placingMFD
 
-var dash_car = spawn_gltf("scenes/models/glb/","carDash.glb",scene,{pos:new Vector3(1.25,.5,1.25)});
-var dash_60W = spawn_gltf("scenes/models/glb/","Dashboard.glb",scene,{pos:new Vector3(-1.25,.5,1.25)});
-var dash_bridge = spawn_gltf("scenes/models/glb/","bridge.glb",scene,{pos:new Vector3(0,0,10)});
+//var dash_car = spawn_gltf("scenes/models/glb/","carDash.glb",scene,{pos:new Vector3(1.25,.5,1.25)});
+var dash_60W = spawn_gltf("scenes/models/glb/","Dashboard.glb",scene,{pos:new Vector3(0,.5,1.25)});
+var dash_bridge = spawn_gltf("scenes/models/glb/","bridge.glb",scene,{pos:new Vector3(0,0,8)});
 
 var mfds = {
   list:[],
@@ -44,7 +44,7 @@ mfds.list.push({path:"public/scenes/models/glb/displays/", fileName:"RDU-3068.gl
 mfds.list.push({path:"public/scenes/models/glb/displays/", fileName:"RDU-3138.glb", meshes:[]});
 mfds.list.push({path:"public/scenes/models/glb/displays/", fileName:"RDU-4047.glb", meshes:[]});
 for(var i = 0; i < mfds.list.length; i++) {
-  var newMFD = await spawn_gltf(mfds.list[i].path,mfds.list[i].fileName,scene);
+  var newMFD = await spawn_gltf(mfds.list[i].path,mfds.list[i].fileName,scene,{pos:new Vector3(0,-1,0)});
   mfds.list[i].meshes = newMFD.meshes;
 }
 
