@@ -1,7 +1,7 @@
 import './style.css'
 import { log } from './extra.js'
 import { DirectionalLight, Engine, FreeCamera, HemisphericLight, MeshBuilder,
-  PointerEventTypes, Ray, Scene, SceneLoader, Vector3, WebXRState } from '@babylonjs/core';
+  PointerEventTypes, Quaternion, Ray, Scene, SceneLoader, Vector3, WebXRState } from '@babylonjs/core';
 import "@babylonjs/loaders/glTF";
 
 // SCENE CREATION AND INITIAL PROJECT SETUP
@@ -18,8 +18,6 @@ var playerStart = {
   rot:new Vector3(0,0,0)
 }
 
-var modelRepoPos = new Vector3(0,-1,0);
-
 var vrControllerInfo = {
   ray:Ray.Zero(),
   dist:0.0,
@@ -29,11 +27,16 @@ var vrControllerInfo = {
   }
 }
 
+var vrPawnInfo = {
+  pos:Vector3.Zero(),
+  rot:Vector3.Zero()
+}
+
 var state = "holdingMFD"; // possibleValues: holdingMFD, placingMFD
 
 //var dash_car = spawn_gltf("scenes/models/glb/","carDash.glb",scene,{pos:new Vector3(1.25,.5,1.25)});
 var dash_60W = spawn_gltf("scenes/models/glb/","Dashboard.glb",scene,{pos:new Vector3(0,.5,1.25)});
-var dash_bridge = spawn_gltf("scenes/models/glb/","bridge.glb",scene,{pos:new Vector3(0,0,8)});
+var dash_bridge = spawn_gltf("scenes/models/glb/","bridge_scan.glb",scene,{pos:new Vector3(0,0,8)});
 
 var mfds = {
   list:[],
@@ -43,17 +46,18 @@ var mfds = {
 mfds.list.push({path:"scenes/models/glb/displays/", fileName:"RDU-3068.glb", meshes:[]});
 mfds.list.push({path:"scenes/models/glb/displays/", fileName:"RDU-3138.glb", meshes:[]});
 mfds.list.push({path:"scenes/models/glb/displays/", fileName:"RDU-4047.glb", meshes:[]});
+mfds.list.push({path:"scenes/models/glb/displays/", fileName:"FD-361.glb", meshes:[]});
 for(var i = 0; i < mfds.list.length; i++) {
-  var newMFD = await spawn_gltf(mfds.list[i].path,mfds.list[i].fileName,scene,{pos:new Vector3(0,-1,0)});
+  var newMFD = await spawn_gltf(mfds.list[i].path,mfds.list[i].fileName,scene,{
+    pos:new Vector3(0,-1,0),
+    generateHitbox:false
+  });
   mfds.list[i].meshes = newMFD.meshes;
 }
-
-console.log(mfds);
 
 var cam_monitor = spawn_cam("cam_main",playerStart.pos,scene,canvas, {
   speed:.25
 });
-//
 
 // Initiating XR
 const xr = await scene.createDefaultXRExperienceAsync({
@@ -62,21 +66,60 @@ const xr = await scene.createDefaultXRExperienceAsync({
 });
 //
 
+// Enabled XR Features
+var vrFeaturesToEnable = ["xr-controller-pointer-selection"];
+
 if (!xr.baseExperience) { // XR is not supported
-  console.log("XR is not supported");
+  //console.log("XR is not supported");
 } else { // XR is supported
-  console.log("XR is supported", xr);
+  //console.log("XR is supported", xr);
+
+  var existingFeatures = xr.baseExperience.featuresManager.getEnabledFeatures();
+
+  console.log("Existing Features: ",existingFeatures);
+
+  // Checking to see which features are disabled
+  var features_discard = existingFeatures;
+  var features_add = [];
+
+  for(var i = 0; i < vrFeaturesToEnable.length; i++) {
+    for(var o = 0; o < existingFeatures.length; o++) {
+      var added = true;
+      if(vrFeaturesToEnable[i] == existingFeatures[o]) {
+        features_discard.splice(o,1);
+        added = false;
+        break
+      }
+    }
+
+    if(added == true) {
+      features_add.push(vrFeaturesToEnable[i]);
+    }
+  }
+
+  for(var i = 0; i < features_discard.length; i++) {
+    xr.baseExperience.featuresManager.disableFeature(features_discard[i]);
+  }
+  for(var i = 0; i < features_add.length; i++) {
+    xr.baseExperience.featuresManager.attachFeature(features_add[i]);
+  }
+
+  console.log("Features Removed: ",features_discard);
+  console.log("Features Added:", features_add);
 
   xr.baseExperience.onStateChangedObservable.add((state) => {
     switch(state) {
       case WebXRState.ENTERING_XR:
-        console.log("Entering XR");
+        //console.log("Entering XR");
         xr.baseExperience.camera.position = new Vector3(0,0,0);
-        xr.baseExperience.camera.rotation = playerStart.rot;
+        var rot_temp = xr.baseExperience.camera.rotationQuaternion.toEulerAngles();
+        rot_temp.y = 90;
+        xr.baseExperience.camera.rotationQuaternion = rot_temp.toQuaternion();
+
       case WebXRState.IN_XR:
-        console.log("In XR");
+        //console.log("In XR");
       case WebXRState.EXITING_XR:
-        console.log("Exiting XR");
+        //console.log("Exiting XR");
     }
   })
 
@@ -114,8 +157,6 @@ if (!xr.baseExperience) { // XR is not supported
           newMFD.obj.rotate(new Vector3(1,0,0),Math.PI / 2);
 
           g_activeMFDS.push(newMFD);
-
-          console.log(g_activeMFDS);
         }
 
         break;
@@ -126,9 +167,14 @@ if (!xr.baseExperience) { // XR is not supported
 
   // global landmark variables
   var g_rightThumbStickInDeadZone = true;
+  var g_leftThumbStickInDeadZone = true;
+  var g_deadZone = .1;
+  var g_speedMultiplier = .05;
+  var g_lookMultiplier = .05;
   xr.input.onControllerAddedObservable.add((inputSource) => {
     inputSource.onMotionControllerInitObservable.add((motionController) => {
       //console.log(motionController.getComponentIds());
+      ///////////////////////////////////////////////////////////////// LEFT HAND
       if (motionController.handedness === 'left') {
         inputSource.getWorldPointerRayToRef(vrControllerInfo.ray);
 
@@ -161,8 +207,19 @@ if (!xr.baseExperience) { // XR is not supported
   
         const thumbStickComponent = motionController.getComponentOfType("thumbstick");
         thumbStickComponent.onAxisValueChangedObservable.add((component) => {
-          //console.log("Left Thumb x:",component.x);
-          //console.log("Left Thumb y:",component.y);
+          var forwardRay = xr.baseExperience.camera.getForwardRay();
+          console.log(forwardRay);
+
+          // Rotate forward ray
+          var sideRay = new Ray(forwardRay.origin,Vector3.Zero());
+          sideRay.direction.z = (forwardRay.direction.z * Math.cos(90)) - (forwardRay.direction.x * Math.sin(90));
+          sideRay.direction.x = (forwardRay.direction.z * Math.sin(90)) + (forwardRay.direction.x * Math.cos(90));
+
+          var temp_y = xr.baseExperience.camera.position.y;
+          var newPos = forwardRay.direction.scale(component.y * g_lookMultiplier).add(xr.baseExperience.camera.position);
+          newPos = sideRay.direction.scale(component.x * g_lookMultiplier).add(newPos)
+          newPos.y = temp_y;
+          xr.baseExperience.camera.position = newPos;
         })
   
         const triggerComponent = motionController.getMainComponent();
@@ -174,6 +231,7 @@ if (!xr.baseExperience) { // XR is not supported
           }
         })
       }
+      ///////////////////////////////////////////////////////////////// RIGHT HAND
       if (motionController.handedness == 'right') {
         inputSource.getWorldPointerRayToRef(vrControllerInfo.ray);
 
@@ -189,12 +247,18 @@ if (!xr.baseExperience) { // XR is not supported
         const aButtonComponent = motionController.getComponent("a-button");
         aButtonComponent.onButtonStateChangedObservable.add((component) => {
           if(aButtonComponent.pressed) {
+            /*
             for(var i = 0; i < g_activeMFDS.length; i++) {
-              console.log(g_activeMFDS[i]);
+              //console.log(g_activeMFDS[i]);
               g_activeMFDS[i].obj.dispose();
             }
-
+            
             g_activeMFDS = [];
+            */
+            g_rightThumbStickInDeadZone = false;
+
+            cycleMFDs(mfds,1);
+            equipMFD(mfds,inputSource.grip);
           } else {
             //console.log("a-button is released");
           }
@@ -203,7 +267,10 @@ if (!xr.baseExperience) { // XR is not supported
         const bButtonComponent = motionController.getComponent("b-button");
         bButtonComponent.onButtonStateChangedObservable.add((component) => {
           if(bButtonComponent.pressed) {
-            //console.log("b-button is pressed");
+            g_rightThumbStickInDeadZone = false;
+
+            cycleMFDs(mfds,-1);
+            equipMFD(mfds,inputSource.grip);
           } else {
             //console.log("b-button is released");
           }
@@ -211,26 +278,23 @@ if (!xr.baseExperience) { // XR is not supported
   
         const thumbStickComponent = motionController.getComponentOfType("thumbstick");
         thumbStickComponent.onAxisValueChangedObservable.add((component) => {
-          //console.log("Right Thumb x:",component.x);
-          //console.log("Right Thumb y:",component.y);
-          if(component.x > .75) {
+          if(component.x > g_deadZone || component.x < -.1 * g_deadZone) {
             if(g_rightThumbStickInDeadZone == true) {
               g_rightThumbStickInDeadZone = false;
-
-              cycleMFDs(mfds,1);
-              equipMFD(mfds,inputSource.grip);
             }
-          }
-          else if(component.x < -.75) {
-            if(g_rightThumbStickInDeadZone == true) {
-              g_rightThumbStickInDeadZone = false;
 
-              cycleMFDs(mfds,-1);
-              equipMFD(mfds,inputSource.grip);
+            var rot_temp = xr.baseExperience.camera.rotationQuaternion.toEulerAngles();
+
+            var intensity = remapF(Math.abs(component.x),g_deadZone,1,0,1);
+            if(component.x < 0) {
+              rot_temp.y += intensity * g_speedMultiplier;
+            } else {
+              rot_temp.y -= intensity * g_speedMultiplier;
             }
-          }
-          else {
-            g_rightThumbStickInDeadZone = true;
+
+            xr.baseExperience.camera.rotationQuaternion = rot_temp.toQuaternion();
+          } else {
+            g_leftThumbStickInDeadZone = true;
           }
         })
   
@@ -271,38 +335,56 @@ function spawn_cam(name,vector,scene,canvas,arg) {
 
   return camera;
 }
-async function spawn_gltf(path = "",fileName = "",scene,transform = 
+async function spawn_gltf(path = "",fileName = "",scene, info = 
 {
-  pos:new Vector3(0,0,0)
+  pos:new Vector3(0,0,0),
+  generateHitbox:false
 }) {
 
   var obj = await SceneLoader.ImportMeshAsync("",path,fileName,scene);
+  var objectBounds = {
+    minimum:Vector3.Zero(),
+    maximum:Vector3.Zero()
+  }
 
   for(var m = 0; m < obj.meshes.length; m++) {
     if(obj.meshes[m].name.substring(0,9) == "collider_") {
-      console.log(obj.meshes[m]);
       obj.meshes[m].isPickable = true;
+      obj.meshes[m].visibility = 0;
     } else {
       obj.meshes[m].isPickable = false;
     }
 
-    if(obj.meshes[m].material != null) {
-      console.log("Material: ", obj.meshes[m].material);
+    if(arguments.generateHitbox == true) {
+      var meshBounds = obj.meshes[m].getBoundingInfo();
+      //console.log(meshBounds);
+      if(meshBounds.minimum.x < objectBounds.minimum.x &&
+      meshBounds.minimum.y < objectBounds.minimum.y &&
+      meshBounds.minimum.z < objectBounds.minimum.z) {
+        objectBounds.minimum = meshBounds.minimum;
+      }
+      else if(meshBounds.maximum.x > objectBounds.maximum.x &&
+      meshBounds.maximum.y > objectBounds.maximum.y &&
+      meshBounds.maximum.z > objectBounds.maximum.z) {
+        objectBounds.maximum = meshBounds.maximum;
+      }
 
+      obj.meshes[m].setBoundingInfo(undefined);
+    }
+
+    if(obj.meshes[m].material != null) {
       if(obj.meshes[m].material.name.substring(0,4) == "dec_") {
         obj.meshes[m].material.transparencyMode = 3;
       }
       else if(obj.meshes[m].material.name.substring(0,4) == "win_") {
         obj.meshes[m].material.alpha = .1;
       }
-      else {
-        var textures = obj.meshes[m].material.getActiveTextures();
-        //console.log("Textures:", textures, "\n");
-      }
     }
   }
 
-  obj.meshes[0].position = transform.pos;
+  //console.log(objectBounds);
+
+  obj.meshes[0].position = info.pos;
 
   return obj
 }
@@ -358,7 +440,6 @@ function cycleMFDs(mfdsJSON = {list:[],active:0},cycleAmount = 0) {
   }
 }
 function equipMFD(mfdsJSON = mfds,parent) {
-  console.log(mfdsJSON);
   for(var i = 0; i < mfdsJSON.list.length; i++) {
     if(i == mfdsJSON.active) {
       mfdsJSON.list[i].meshes[0].parent = parent;
@@ -368,4 +449,7 @@ function equipMFD(mfdsJSON = mfds,parent) {
       mfdsJSON.list[i].meshes[0].position = new Vector3(0,-1,0);
     }
   }
+}
+function remapF(in_val,in_min, in_max, out_min, out_max) {
+  return (in_val - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
